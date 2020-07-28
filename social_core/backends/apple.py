@@ -30,6 +30,9 @@ from jwt.exceptions import PyJWTError
 
 from social_core.backends.oauth import BaseOAuth2
 from social_core.exceptions import AuthFailed
+import logging
+
+apple_log = logging.getLogger('debugging_apple_sign_in')
 
 
 class AppleIdAuth(BaseOAuth2):
@@ -63,6 +66,10 @@ class AppleIdAuth(BaseOAuth2):
             params['response_mode'] = self.RESPONSE_MODE
         elif self.get_scope():
             params['response_mode'] = 'form_post'
+
+        apple_log.warning(msg="auth_params params['response_mode'] is {response_mode}".format(
+            response_mode=params['response_mode']))
+
         return params
 
     def get_private_key(self):
@@ -79,6 +86,9 @@ class AppleIdAuth(BaseOAuth2):
         key_id = self.setting('KEY')
         private_key = self.get_private_key()
 
+        apple_log.warning(msg="generate_client_secret secret is {secret}".format(
+            secret=private_key))
+
         headers = {'kid': key_id}
         payload = {
             'iss': team_id,
@@ -87,6 +97,9 @@ class AppleIdAuth(BaseOAuth2):
             'aud': self.TOKEN_AUDIENCE,
             'sub': client_id,
         }
+
+        apple_log.warning(msg="generate_client_secret kid is {kid}, iss is {iss}, aud is {aud}, sub is {sub}".format(
+            kid=key_id, iss=team_id, aud=self.TOKEN_AUDIENCE, sub=client_id))
 
         return jwt.encode(payload, key=private_key, algorithm='ES256',
                           headers=headers)
@@ -103,6 +116,7 @@ class AppleIdAuth(BaseOAuth2):
         keys = self.get_json(url=self.JWK_URL).get('keys')
 
         if not isinstance(keys, list) or not keys:
+            apple_log.warning(msg="get_apple_jwk we fell on this one")
             raise AuthFailed(self, 'Invalid jwk response')
 
         if kid:
@@ -119,15 +133,20 @@ class AppleIdAuth(BaseOAuth2):
             raise AuthFailed(self, 'Missing id_token parameter')
 
         try:
+            apple_log.warning(msg="decode_id_token id_token is {id_token}".format(id_token=id_token))
             kid = jwt.get_unverified_header(id_token).get('kid')
+            apple_log.warning(msg="decode_id_token kid is {kid}".format(kid=kid))
             public_key = RSAAlgorithm.from_jwk(self.get_apple_jwk(kid))
+            apple_log.warning(msg="decode_id_token public_key is {public_key}".format(public_key=public_key))
+            apple_log.warning(msg="decode_id_token audience is {audience}".format(audience=self.get_audience()))
             decoded = jwt.decode(
                 id_token,
                 key=public_key,
                 audience=self.get_audience(),
                 algorithm='RS256',
             )
-        except PyJWTError:
+        except PyJWTError as e:
+            apple_log.warning(msg="decode_id_token e is {e}".format(e=e))
             raise AuthFailed(self, 'Token validation failed')
 
         return decoded
@@ -152,7 +171,7 @@ class AppleIdAuth(BaseOAuth2):
             user_details['username'] = email
         if apple_id and not self.setting('EMAIL_AS_USERNAME'):
             user_details['username'] = apple_id
-
+        apple_log.info(msg="get_user_details {user_details}".format(user_details=user_details))
         return user_details
 
     def do_auth(self, access_token, *args, **kwargs):
@@ -163,6 +182,8 @@ class AppleIdAuth(BaseOAuth2):
             raise AuthFailed(self, 'Missing id_token parameter')
 
         decoded_data = self.decode_id_token(jwt_string)
+        apple_log.warning(msg="do_auth decoded_data is {decoded_data}".format(decoded_data=decoded_data))
+
         return super(AppleIdAuth, self).do_auth(
             access_token,
             response=decoded_data,
